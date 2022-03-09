@@ -22,7 +22,7 @@ First, users should install and load the following libraries (available from CRA
 ```{R loadLibraries, message=FALSE}
 # Libraries specific to GGM estimation and inference
 library(bootnet) # Epskamp 2018
-library(GGMncv)
+library(GGMncv) # Williams 2020
 library(glasso) # Friedman, Hastie, Tibshirani 2007
 library(hglasso) # Tan et al 2014
 library(huge) # Zhao et al 2012
@@ -45,7 +45,7 @@ if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 }
 
-BiocManager::install("curatedOvarianData")
+#BiocManager::install("curatedOvarianData")
 
 library(curatedOvarianData)
 ```
@@ -292,7 +292,7 @@ ggm = graph_from_adjacency_matrix(-cov2cor(precMat),
                                   diag=F)
 ```
 
-The `summary` function tells us our GGM has 155 nodes and 184 edges, along with an attribute for edge weight:
+The `summary` function tells us our GGM has 156 nodes and 184 edges, along with an attribute for edge weight:
 
 ```{R}
 summary(ggm)
@@ -438,13 +438,13 @@ plot(contGraph,
 If we want to make an inferential statement about this subnetwork, we can look at the results of the edgewise hypothesis tests in the results from `SILGGM`. For consistency, we use the Jankova 2015 graphical lasso-based method and re-run `SILGGM` with the value of `lambda` that we selected for the weighted GGM:
 
 ```{R}
-jankova2015 = SILGGM(x = as.matrix(ocDataSmall), method = "D-S_GL",alpha = 0.05/(155*154), global = T, lambda = 0.322)
+jankova2015 = SILGGM(x = as.matrix(ocDataSmall), method = "D-S_GL",alpha = 0.05/(156*155/2), global = T, lambda = 0.322)
 ```
 
-Next, we extract the neighborhood of WT1 in the Jankova 2015 inference graph. We do this by thresholding based on edge-wise Bonferroni-corrected $p$-values presented in the estimation results, consistent with the application shown in `\cite{jankova2015`:
+Next, we extract the neighborhood of WT1 in the Jankova 2015 inference graph. We do this by thresholding based on edge-wise Bonferroni-corrected $p$-values presented in the estimation results, consistent with the application shown in `\cite{jankova2015}`:
 
 ```{R}
-inferenceGraph = graph_from_adjacency_matrix(jankova2015$p_precision < 0.05/(155*(155-1)),mode="undirected",diag=F)
+inferenceGraph = graph_from_adjacency_matrix(jankova2015$p_precision < 0.05/(156*155/2),mode="undirected",diag=F)
 
 V(inferenceGraph)$name=names(ocDataSmall)
 wt1Nbhd=neighborhood(inferenceGraph,nodes=which(V(inferenceGraph)$name == "WT1"))
@@ -566,11 +566,11 @@ plot(epcamCommunity,
 
 Looking at the community level can be a helpful way to understand which nodes in the network are most closely associated with a particular node (in this case, gene) of interest, which can lead to further biological insights. It is important to note that community detection algorithms can produce highly variable results, and prior to using an algorithm, a researcher should take the time to understand the basics of how it works.  This topic is beyond the scope of the current tutorial; see, for example, Fortunato et al. 2016 `\cite{fortunato2016community}`.
 
-# Comparison with the adaptive graphical lasso
+# Comparison with the adaptive graphical lasso, SCAD, and MCP alternative penalties using `GGMncv`
 
-```{R}
+Finally, we demonstrate the difference in estimated GGMs with the use of penalties other than the $\ell_1$ (LASSO) penalty, as discussed in Section 3.1.2. The `GGMncv` package provides the `ggmncv` function which allows us to easily fit several different penalties.
 
-```
+First, as a benchmark, we fit a GGM with the LASSO penalty using the same tuning parameter selected above using the StARS criterion ($\lambda = 0.322$)
 
 ```{R}
 lassoGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
@@ -579,48 +579,84 @@ lassoGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall),
               initial = ledoit_wolf, 
               Y = ocDataSmall,
               lambda = 0.322)
+```
 
+Next, we fit GGMs with the adaptive graphical lasso, the SCAD penalty, and the MCP. Again, we use the same value of $\lambda = 0.322$ for purposes of comparison between these approaches; in practice, the optimal value of $\lambda$ is specific to each penalty type and the appropriate penalty must be used in tuning parameter selection. 
+
+```{R}
 adaptiveGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
+              penalty = "adapt",
+              progress = FALSE,
+              initial = ledoit_wolf, 
+              Y = ocDataSmall,
+              lambda = 0.322)
+
+scadGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
               penalty = "scad",
               progress = FALSE,
               initial = ledoit_wolf, 
               Y = ocDataSmall,
               lambda = 0.322)
 
-# lasso GGM should be basically the same as stars mat
-summary(as.vector(1/2*lassoGGM$P + 1/2*cov2cor(precMat)-0.5*diag(156)))
+mcpGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
+              penalty = "mcp",
+              progress = FALSE,
+              initial = ledoit_wolf, 
+              Y = ocDataSmall,
+              lambda = 0.322)
 
-# lasso GGM should be basically the same as stars mat
-summary(as.vector(1/2*adaptiveGGM$P + 1/2*cov2cor(precMat)-0.5*diag(156)))
 ```
 
-Compare graphs of the stars result, the lasso result, the adaptive lasso result:
+A comparison of coefficients shows that coefficients with larger magnitude are typically shrunk less by the SCAD and the MCP penalties. 
 
 ```{R}
-graph1 = graph_from_adjacency_matrix(-1/2*cov2cor(precMat),weighted=T,mode="plus",diag=F)
-graph2 = graph_from_adjacency_matrix(1/2*adaptiveGGM$P,weighted=T,mode="plus",diag=F)
-graph3 = graph_from_adjacency_matrix(1/2*lassoGGM$P,weighted=T,mode="plus",diag=F)
-```
-
-```{R}
-plot(graph1,layout=layout_in_circle)
-plot(graph2,layout=layout_in_circle)
-plot(graph3,layout=layout_in_circle)
-```
-
-```{R}
-# The plot we want that will show what's going on is a plot of the edge weights, sorted by lowest to highest, for both the adaptive and regular glasso.
-adaptiveEdgeWeights = adaptiveGGM$P[lower.tri(adaptiveGGM$P)]
 l1EdgeWeights = lassoGGM$P[lower.tri(lassoGGM$P)]
+adaptiveEdgeWeights = adaptiveGGM$P[lower.tri(adaptiveGGM$P)]
+scadEdgeWeights = scadGGM$P[lower.tri(scadGGM$P)]
+mcpEdgeWeights = mcpGGM$P[lower.tri(mcpGGM$P)]
 
-allWeights = data.frame("adaptive"=adaptiveEdgeWeights,"lasso"=l1EdgeWeights)
-allWeights = allWeights[order(allWeights$adaptive),]
-# comparing anything to "gold standard" is beyond the scope of this tutorial,that evidence is discussed by Williams and the authors of the original penalties
-# remove boring edges where all are zero
-rmIndices = which(allWeights$adaptive == 0 & allWeights$lasso == 0)
-plot(allWeights[-rmIndices,1],pch=20,col="red")
+allWeights = data.frame("lasso"=l1EdgeWeights,"adaptive"=adaptiveEdgeWeights,"scad"=scadEdgeWeights,"mcp"=mcpEdgeWeights)
+
+allWeights = allWeights[order(allWeights$lasso),]
+
+# plot only edge weights in which one of the two methods did not give a zero
+rmIndices = which(allWeights$lasso == 0 & allWeights$adaptive == 0)
+plot(allWeights[-rmIndices,1],pch=20,col="red",ylab="Edge Weight", main = "glasso vs. adaptive glasso")
 points(allWeights[-rmIndices,2],pch=20,col="blue")
+legend("topleft",c("glasso","adaptive glasso"),col=c("red","blue"),pch=20)
+
+rmIndices = which(allWeights$lasso == 0 & allWeights$scad == 0)
+plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight", main = "glasso vs. SCAD")
+points(allWeights[-rmIndices,3],pch=20,col="blue")
+legend("topleft",c("glasso","SCAD"),col=c("red","blue"),pch=20)
+
+rmIndices = which(allWeights$lasso == 0 & allWeights$mcp == 0)
+plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight", main = "glasso vs. MCP")
+points(allWeights[-rmIndices,4],pch=20,col="blue")
+legend("topleft",c("glasso","MCP"),col=c("red","blue"),pch=20)
+
 ```
+
+The same phenomenon is not observed in the adaptive graphical lasso; this can likely be attributed to the very sparse graph that is selected by this method. If we rerun the adaptive graphical lasso with a smaller tuning parameter, we see the expected pattern:
+
+```{R}
+adaptiveGGM2 = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
+              penalty = "adapt",
+              progress = FALSE,
+              initial = ledoit_wolf, 
+              Y = ocDataSmall,
+              lambda = 0.1)
+
+adaptiveEdgeWeights2 = adaptiveGGM2$P[lower.tri(adaptiveGGM2$P)]
+allWeights = data.frame("lasso"=l1EdgeWeights,"adaptive2"=adaptiveEdgeWeights2)
+allWeights = allWeights[order(allWeights[,1]),]
+rmIndices = which(allWeights$lasso == 0 & allWeights$adaptive2 == 0)
+plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight", main = "glasso vs. more dense adaptive lasso")
+points(allWeights[-rmIndices,2],pch=20,col="blue")
+legend("topleft",c("glasso","adaptive lasso, lambda = 0.1"),col=c("red","blue"),pch=20)
+```
+
+It is worth mentioning again that the optimal $\lambda$ is a function of the penalty type and that any cross-validation or other approaches for selecting $\lambda$ should be performed using the desired penalty of the final model.
 
 # Supplement: Making Nice Graphs
 
@@ -631,7 +667,7 @@ ggm = graph_from_adjacency_matrix(-cov2cor(precMat),
                                   diag=F)
 ```
 
-The `summary` function tells us our GGM has 155 nodes and 184 edges, along with an attribute for edge weight:
+The `summary` function tells us our GGM has 156 nodes and 184 edges, along with an attribute for edge weight:
 
 ```{R}
 summary(ggm)
