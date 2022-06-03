@@ -1,6 +1,6 @@
 ---
 title: "Gaussian Graphical Models with Applications to Omics Analyses"
-author: "K.H. Shutta (kshutta@umass.edu), R. De Vito, D.M. Scholtens, R. Balasubramanian"
+author: "K.H. Shutta (kshutta@hsph.harvard.edu), R. De Vito, D.M. Scholtens, R. Balasubramanian"
 output:
   pdf_document:
     toc: TRUE
@@ -8,7 +8,7 @@ output:
 --- 
 
 ```{R include=F}
-knitr::opts_chunk$set(cache = T,
+knitr::opts_chunk$set(cache = F,
                       fig.align = 'center',
                       fig.width=6, 
                       fig.height=4,
@@ -24,7 +24,6 @@ First, users should install and load the following libraries (available from CRA
 library(bootnet) # Epskamp 2018
 library(GGMncv) # Williams 2020
 library(glasso) # Friedman, Hastie, Tibshirani 2007
-library(hglasso) # Tan et al 2014
 library(huge) # Zhao et al 2012
 library(SILGGM) # Zhang et al 2018
 # (implements Ren et al 2015,  Janková and van de Geer 2015, Janková and van de Geer 2017, and Liu 2013)
@@ -52,7 +51,7 @@ library(curatedOvarianData)
 
 # Loading and previewing the data
 
-The data used in this tutorial are from a TCGA study of ovarian cancer available in the `curatedOvarianData` R package `\cite{ganzfried2013curatedovariandata}`. We begin by demonstrating how to load the data. The data are stored in an ExpressionSet object, helpful documentation for which can be found `\cite{falcon2007introduction}`. We use the `exprs` function to extract the array data from the ExpressionSet. 
+The data used in this tutorial are from a TCGA study of ovarian cancer available in the `curatedOvarianData` R package `\cite{ganzfried2013curatedovariandata}`. We begin by demonstrating how to load the data. The data are stored in an ExpressionSet object, helpful documentation for which can be found the vignette for the Bioconductor's ExpressionSet class `\cite{falcon2007introduction}`. We use the `exprs` function to extract the array data from the ExpressionSet. 
 
 ```{R defineGeneSets}
 library(curatedOvarianData)
@@ -69,7 +68,7 @@ ocData[1:5,1:5]
 
 # Standardizing the data
 
-An important starting point in GGM estimation is to consider standardizing the predictors.  Because many methods for GGM estimation employ shrinkage methods, the size of the entries in the covariance matrix, and consequently the precision matrix, will affect results. In applications such as metabolomics that output relative abundance of individual metabolites,the absolute measurements have no practical interpretation; in these settings, standardizing the predictors ahead of time is important. Some packages handle this internally, while others do not; therefore, we recommend standardizing predictors prior to beginning analysis unless you deliberately wish to study the variance of the absolute measurements. Here, we also center for convenience. 
+An important starting point in GGM estimation is to consider standardizing the predictors.  Because many methods for GGM estimation employ shrinkage methods, the size of the entries in the covariance matrix, and consequently the precision matrix, will affect results. In applications such as metabolomics that output relative abundance of individual metabolites, the absolute measurements have no practical interpretation; in these settings, standardizing the predictors ahead of time is important. Some packages handle this internally, while others do not; therefore, we recommend standardizing predictors prior to beginning analysis unless you deliberately wish to study the variance of the absolute measurements. Here, we also center for convenience. 
 
 ```{R}
 standardize = function(x)
@@ -93,7 +92,7 @@ The resulting centered, standardized predictors are now prepared for GGM estimat
 
 # Identifying genes for network analysis
 
-Graphical lasso can handle tens of thousands of predictors. However, a frequent practice is the use of some prior knowledge to reduce the set of predictors being considered.  In this tutorial, we will leverage two gene sets from the Molecular Signatures Database (MolSigDB) `\cite{msigdb}`. Both gene sets come from a study by Wamunyokoli et al. profiling gene expression in ovarian cancer `\cite{wamunyokoli}`. The first set corresponds to genes that were downregulated in mucinous ovarian tumors, and the second corresponds to genes that were upregulated. In both cases, the baseline for comparison was normal ovarian epithelial cells. We access both gene sets using the `msigdbr` R package (https://cran.r-project.org/web/packages/msigdbr/index.html). 
+Graphical lasso can handle tens of thousands of predictors. However, a frequent practice is the use of some prior knowledge to reduce the set of predictors being considered.  In this tutorial, we will leverage two gene sets from the Molecular Signatures Database (MolSigDB) `\cite{msigdb}`. Both gene sets come from a study by Wamunyokoli et al. (2006) profiling gene expression in ovarian cancer `\cite{wamunyokoli}`. The first set corresponds to genes that were downregulated in mucinous ovarian tumors, and the second corresponds to genes that were upregulated. In both cases, the baseline for comparison was normal ovarian epithelial cells. We access both gene sets using the `msigdbr` R package (https://cran.r-project.org/web/packages/msigdbr/index.html). 
 
 ```{R}
 human_gene_sets = msigdbr(species = "Homo sapiens", 
@@ -115,7 +114,7 @@ dim(ocDataSmall)
 
 # GGM estimation and tuning parameter selection
 
-We begin fitting a GGM with the `glasso` function from the  `glasso` package. When using this function, the tuning parameter must be specified. In this package, the tuning parameter is denoted by `rho`, vs. the notation $\lambda$ used earlier in this article. We demonstrate over a series of values of `rho`. Plotting the GGM requires converting from the results of `glasso`, which are in the form of a precision matrix, to the matrix of partial correlations, which is accomplished with the code `-cov2cor(glassoMod$wi)` (See Equation \ref{eq:cc}).
+We begin fitting a GGM with the `glasso` function from the  `glasso` package. When using this function, the tuning parameter must be specified. In this package, the tuning parameter is denoted by `rho`, vs. the notation $\lambda$ used earlier in this article. We demonstrate over a series of values of `rho`. Plotting the GGM requires converting from the results of `glasso`, which correspond to estimates of the precision matrix, to the matrix of partial correlations, which is accomplished with the code `-cov2cor(glassoMod$wi)` (See Equation \ref{eq:cc}).
 
 ```{R, message=F}
 par(mfrow=c(1,4), mar = c(0,1,0,1))
@@ -138,7 +137,7 @@ These graphs demonstrate the graphical lasso property that higher values of the 
 
 Rather than make a choice of tuning parameter based on inspection of the graph, a more principled approach involves the use of a scoring criterion such as those described in the review above.  The `huge.select` function of the R package `huge` has implemented three such criteria: the extended Bayesian information criterion (eBIC), the rotation information criterion (RIC), and the stability approach to regulation selection (StARS). We begin by looking at the eBIC. 
 
-The eBIC itself has a non-negative tuning parameter `gamma`, where smaller values of `gamma` result in a more dense graph and higher values result in a sparser graph. To use the eBIC to select a model, we first fit the GGM over a range of values of $\lambda$ using the `huge` function and then use the `huge.select` function to select the optimal $\lambda$ from the results of the first step:
+The eBIC itself has a non-negative tuning parameter `gamma`, where smaller values of `gamma` result in a more dense graph and higher values result in a sparser graph `\cite{ebic}`. To use the eBIC to select a model, we first fit the GGM over a range of values of $\lambda$ using the `huge` function and then use the `huge.select` function to select the optimal $\lambda$ from the results of the first step, while setting $\gamma$ to 0:
 
 ```{R include=F}
 hugeResults = huge(as.matrix(ocDataSmall),method="glasso")
@@ -206,7 +205,7 @@ and the plot shows us that with this criterion, the  optimal value of $\lambda$ 
 plot(hugeSelectResults_0.25,cex.main=0.5)
 ```
 
-Next, we investigate two other scoring criteria provided by `huge.select`. The rotation information criterion (`ric`) requires no criterion-specific tuning parameter. The stability approach to regulation selection (`stars`) requires the selection of a variability threshold (`stars.thres`) and a subsampling ratio (`stars.subsample.ratio`). 
+Next, we investigate two other scoring criteria provided by `huge.select`. The rotation information criterion (RIC; `ric`) requires no criterion-specific tuning parameter. The stability approach to regulation selection (StARS; `stars`) criterion requires the selection of a variability threshold (`stars.thres`) and a subsampling ratio (`stars.subsample.ratio`). 
 
 ```{R include=F}
 hugeSelectResults_ric = huge.select(hugeResults,criterion="ric")
@@ -232,7 +231,7 @@ hugeSelectResults_stars = huge.select(hugeResults,criterion="stars")
 hugeSelectResults_stars = huge.select(hugeResults,criterion="stars")
 ```
 
-The value of $\lambda$ selected by `stars` is larger than that selected by `ric` or by the eBIC with `ebic.gamma=0` or `ebic.gamma=0.25`:
+The value of $\lambda$ selected by StARS is larger than that selected by the RIC or by the eBIC with `ebic.gamma=0` or `ebic.gamma=0.25`:
 
 ```{R}
 hugeSelectResults_stars$opt.lambda
@@ -240,13 +239,13 @@ hugeSelectResults_stars$opt.lambda
 
 It is evident that the optimal value of $\lambda$ can be highly sensitive to the definition of "optimality" (i.e., choice of criterion).  We explore this further and propose solutions in `\cite{shutta2021spiderlearner}`.
 
-One important consideration when exploring the tuning parameter is the range of $\lambda$ considered in the first estimation step. Most methods have a default range of $\lambda$ that is based on theoretical properties of the graphical lasso model, computed from the number of $\lambda$ values of interest and the minimum value of $\lambda$ that will result in an empty graph. A user may also define their own sequence of $\lambda$ values if they wish to search in a more refined region. For example, the previous $\lambda$ selected by `stars` is about 0.322, but the next closest values checked were 0.416 and 0.250:
+One important consideration in the selection of the tuning parameter is the range of $\lambda$ considered in the first estimation step. Most methods have a default range of $\lambda$ that is based on theoretical properties of the graphical lasso model, computed from the number of $\lambda$ values of interest and the minimum value of $\lambda$ that will result in an empty graph. A user may also define their own sequence of $\lambda$ values if they wish to search in a more refined region. For example, the previous $\lambda$ selected by `stars` is about 0.322, but the next closest values evaluated were 0.416 and 0.250:
 
 ```{R}
 hugeSelectResults_stars$lambda
 ```
 
-We can try a larger number of $\lambda$ values using the \texttt{nlambda} argument in the \texttt{huge} function to see if there is a better fit:
+We can try a larger number of $\lambda$ values resulting in a finer grid by using the \texttt{nlambda} argument in the \texttt{huge} function to see if there is a better fit:
 
 ```{R include=F}
 hugeResults_smallLambda = huge(as.matrix(ocDataSmall),method="glasso",nlambda=100)
@@ -270,7 +269,7 @@ When we do this, we find the optimal value of $\lambda$ is much smaller:
 hugeSelectResults_stars_smallLambda$opt.lambda
 ```
 
-For the purposes of this tutorial, we'll proceed using the value of $\lambda = 0.322$ determined by the `stars` criterion with the coarse-grained sequence of $\lambda$ values: it is the largest tuning parameter we found that produces a non-empty graph, and this sparsity facilitates easier demonstration of plotting techniques. 
+For the purposes of this tutorial, we'll proceed using the value of $\lambda = 0.322$ determined by the StARS criterion with the coarse-grained sequence of $\lambda$ values: it is the largest tuning parameter we found that produces a non-empty graph, and this sparsity facilitates easier demonstration of plotting techniques. 
 
 # Visualizing and interpreting the estimated GGM
 
@@ -305,7 +304,7 @@ V(ggm)$name = names(ocDataSmall)
 summary(ggm)
 ```
 
-We use the `plot` function from `igraph` to visualize the network. Here, for simplicity, we look at only nodes that have at least one edge in the network. We have set vertex size to be proportional to the degree of each node, labeled vertices with degree $>6$, assigned edge width to be proportional to the magnitude of each edge weight, and assigned edge color to be dark red for positive partial correlations and blue for negative partial correlations. Finally, we select a graph layout. Several options are provided in `igraph`, each with advantages and disadvantages for particular applications. We recommend trying several. Here, we use `layout_with_graphopt`, which is a force-directed layout based on treating the network as a mass-and-spring system. Because there is a random component to the layout function, it is a good idea to set a seed before plotting.
+We use the `plot` function from `igraph` to visualize the network. Here, for simplicity, we look at only nodes that have at least one edge in the network. We have set vertex size to be proportional to the degree of each node, labeled vertices with degree $>6$, assigned edge width to be proportional to the magnitude of each edge weight, and assigned edge color to be dark red for positive partial correlations and blue for negative partial correlations. Finally, we select a graph layout. Several options are provided in `igraph`, each with advantages and disadvantages for particular applications. We recommend trying several. Here, we use `layout_with_graphopt`, which is a force-directed layout based on treating the network as a mass-and-spring system. Because there is a random component to the layout function, it is a good idea to set a seed before running it.
 
 
 ```{R fig.width=14, fig.height=10}
@@ -316,7 +315,6 @@ ggmConnected = delete_vertices(ggm, which(degree(ggm)==0))
 set.seed(2021)
 thisLayout=layout_with_graphopt(ggmConnected)
 
-set.seed(2021)
 plot(ggmConnected,
      vertex.size=degree(ggmConnected),
      vertex.label=ifelse(degree(ggmConnected)>6,V(ggmConnected)$name,NA),
@@ -346,7 +344,7 @@ ocHub = hub_score(ggmConnComp)$vector
 
 Next, it is important to know that betweenness centrality and closeness
 centrality interpret edge weights as distances (i.e., dissimilarities), where larger values indicate more dissimilar nodes.
-In contrast, in a GGM, a high edge weight or partial correlation indicates closeness/similarity. To calculate betweenness centrality and closeness centrality, we therefore first transform the partial correlations in a GGM to function as a distance measure in which large values indicate dissimilarity as shown below:
+In contrast, in a GGM, a high edge weight magnitude (high absolute value of partial correlation) indicates closeness/similarity. To calculate betweenness centrality and closeness centrality, we therefore first transform the partial correlations in a GGM to function as a distance measure for which large values indicate dissimilarity as shown below:
 
 ```{R}
 transformedWeights = 1/abs(E(ggmConnComp)$weight)
@@ -354,7 +352,7 @@ ocCloseness = closeness(ggmConnComp,weights=transformedWeights)
 ocBetweenness = betweenness(ggmConnComp,weights=transformedWeights)
 ```
 
-We assemble a final data frame containing all four  measures:
+We assemble a final data frame containing all four measures:
 
 ```{R}
 ocGraphMeasures = data.frame("gene"=V(ggmConnComp)$name,"degree"=ocDegree,"hubScore"=ocHub, "closeness"=ocCloseness,"betweenness"=ocBetweenness)
@@ -479,12 +477,19 @@ We again emphasize that the inference here is only valid under the assumptions p
 
 ## With `bootnet`
 
-The methods presented in `SILGGM` are based on theoretical derivations and principles of FDR control, and lead to conclusions about edge presence or absence. The `bootnet` package takes a different approach that utilizes the bootstrap to assess variability of estimated edge weights. Via resampling, `bootnet` is able to estimate quantile-based or Wald-type confidence intervals for the edges in the GGM. Epskamp notes that these confidence intervals should not be used to determine presence or absence of an edge, but that they can be used to generally understand the magnitude of edge weight variability and to compare partial correlations between two edges. 
+The methods presented in `SILGGM` are based on theoretical derivations and principles of FDR control, and lead to conclusions about edge presence or absence. The `bootnet` package takes a different approach that utilizes the bootstrap to assess variability of estimated edge weights. Via resampling, `bootnet` is able to estimate quantile-based or Wald-type confidence intervals for the edges in the GGM. The authors of the  `bootnet` package note that these confidence intervals should not be used to determine presence or absence of an edge, but that they can be used to generally understand the magnitude of edge weight variability and to compare partial correlations between two edges `\cite{epskamp2018estimating}`. 
 
 Here, we apply `bootnet` with the `EBICglasso` method to explore such questions. The code chunk below is time-consuming. If you would like to try a quicker version, change the `nBoots` variable to something smaller for exploration; as with any bootstrap process, large values of `nBoots` should be used in actual analyses.
 
 ```{R, message=FALSE, warning=FALSE}
-bn = bootnet::bootnet(as.matrix(ocDataSmall),nBoots = 100, default = "EBICglasso",nlambda=30,lambda.min.ratio=0.1,tuning = 0.25,type = "nonparametric", model= "GGM")
+bn = bootnet::bootnet(as.matrix(ocDataSmall),
+                      nBoots = 100, 
+                      default = "EBICglasso",
+                      nlambda=30,
+                      lambda.min.ratio=0.1,
+                      tuning = 0.25,
+                      type = "nonparametric", 
+                      model= "GGM")
 ```
 
 The results from `bootnet` enable us to construct bootstrap-based confidence intervals for a partial correlation using the `bootTable` attribute of the output. This table stores the values of each edge weight over the bootstrap samples conducted, and includes the necessary information to estimate standard deviation of the edge weight sampling distribution.  Below, we focus on the edge between genes ESRP1 and EPCAM:
@@ -505,9 +510,9 @@ ciLower
 ciUpper
 ```
 
-Note that if many confidence intervals are to be investigated, multiple hypothesis testing should be considered. While a simple adjustment such as a Bonferroni correction can be implemented, there are difficulties related to the non-independence of the multiple tests and this is an area for future work (see `\cite{bootnet}` for a detailed discussion).
+Note that if many confidence intervals are to be investigated, multiple hypothesis testing should be considered. While a simple adjustment such as a Bonferroni correction can be implemented, there are difficulties related to the dependence between the multiple tests and this is an area for future work`\cite{epskamp2018estimating}`.
 
-`bootnet` can also help us compare partial correlations. For example,the gene ESRP1 has several strong positive connections in our network, one to EPCAM, one to TPD52, and one to ERBB3. 
+`bootnet` can also help us compare partial correlations by using the distribution of edge weights in the bootstrap samples. For example,the gene ESRP1 has several strong positive connections in our network, one to EPCAM, one to TPD52, and one to ERBB3. 
 
 ```{R echo=F}
 esrp1Nbhd =neighborhood(ggmConnected,nodes=which(V(ggmConnected)$name == "ESRP1"))
@@ -534,7 +539,7 @@ differenceTest(bn, x="ESRP1",x2="F11R",y="ERBB3",y2="ESRP1",measure="edge")
 
 # Community Detection 
 
-The `igraph` package provides an easy interface for several different community detection methods. Here, we demonstrate the `cluster_walktrap` algorithm `\cite{pons2005computing}`, labeling nodes with degree $>6$.
+Community detection, as discussed earlier in this paper, is one useful tool for interpreting a graph once it has been estimated.  We note that community detection is a general technique that can be used on a broad range of graphs, not solely GGMs. The `igraph` package provides an easy interface for several different community detection methods. Here, we demonstrate the `cluster_walktrap` algorithm `\cite{pons2005computing}`, labeling nodes with degree $>6$.
 
 ```{R fig.width=12, fig.height=8}
 ggmComms = cluster_walktrap(ggmConnected,weights=abs(E(ggmConnected)$weight))
@@ -564,7 +569,7 @@ plot(epcamCommunity,
     layout=layout_with_graphopt)
 ```
 
-Looking at the community level can be a helpful way to understand which nodes in the network are most closely associated with a particular node (in this case, gene) of interest, which can lead to further biological insights. It is important to note that community detection algorithms can produce highly variable results, and prior to using an algorithm, a researcher should take the time to understand the basics of how it works.  This topic is beyond the scope of the current tutorial; see, for example, Fortunato et al. 2016 `\cite{fortunato2016community}`.
+Looking at the community level can be a helpful way to understand which nodes in the network are most closely associated with a particular node (in this case, gene) of interest, which can lead to further biological insights. It is important to note that community detection algorithms can produce highly variable results, so we encourage the user to undertake a thorough sensitivity analysis. This topic is beyond the scope of the current tutorial; see, for example, Fortunato et al. (2016) `\cite{fortunato2016community}`.
 
 # Comparison with the adaptive graphical lasso, SCAD, and MCP alternative penalties using `GGMncv`
 
@@ -607,9 +612,9 @@ mcpGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall),
 
 ```
 
-A comparison of coefficients shows that coefficients with larger magnitude are typically shrunk less by the SCAD and the MCP penalties. 
+A pairwise comparison of coefficients shows that, among coefficients that are nonzero in at least one of the pair of models, coefficients with larger magnitude are typically shrunk less by the SCAD and the MCP penalties but the same phenomenon is not observed in the adaptive graphical lasso: 
 
-```{R}
+```{R echo=F, fig.width=5, fig.height=6}
 l1EdgeWeights = lassoGGM$P[lower.tri(lassoGGM$P)]
 adaptiveEdgeWeights = adaptiveGGM$P[lower.tri(adaptiveGGM$P)]
 scadEdgeWeights = scadGGM$P[lower.tri(scadGGM$P)]
@@ -619,25 +624,27 @@ allWeights = data.frame("lasso"=l1EdgeWeights,"adaptive"=adaptiveEdgeWeights,"sc
 
 allWeights = allWeights[order(allWeights$lasso),]
 
+par(mfrow=c(3,1),mar=c(2,4,2,4))
 # plot only edge weights in which one of the two methods did not give a zero
 rmIndices = which(allWeights$lasso == 0 & allWeights$adaptive == 0)
-plot(allWeights[-rmIndices,1],pch=20,col="red",ylab="Edge Weight", main = "glasso vs. adaptive glasso")
-points(allWeights[-rmIndices,2],pch=20,col="blue")
-legend("topleft",c("glasso","adaptive glasso"),col=c("red","blue"),pch=20)
-
 rmIndices = which(allWeights$lasso == 0 & allWeights$scad == 0)
-plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight", main = "glasso vs. SCAD")
+plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight",main = "glasso edge weights vs. SCAD edge weights ")
 points(allWeights[-rmIndices,3],pch=20,col="blue")
 legend("topleft",c("glasso","SCAD"),col=c("red","blue"),pch=20)
 
 rmIndices = which(allWeights$lasso == 0 & allWeights$mcp == 0)
-plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight", main = "glasso vs. MCP")
+plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight",main = "glasso edge weights vs. MCP edge weights ")
 points(allWeights[-rmIndices,4],pch=20,col="blue")
 legend("topleft",c("glasso","MCP"),col=c("red","blue"),pch=20)
 
+rmIndices = which(allWeights$lasso == 0 & allWeights$adaptive == 0)
+plot(allWeights[-rmIndices,1],pch=20,col="red",ylab="Edge Weight", main = "glasso edge weights vs. adaptive glasso edge weights")
+points(allWeights[-rmIndices,2],pch=20,col="blue")
+legend("topleft",c("glasso","adaptive glasso"),col=c("red","blue"),pch=20)
+
 ```
 
-The same phenomenon is not observed in the adaptive graphical lasso; this can likely be attributed to the very sparse graph that is selected by this method. If we rerun the adaptive graphical lasso with a smaller tuning parameter, we see the expected pattern:
+This can likely be attributed to the very sparse graph that is selected by the adaptive graphical lasso with $\lambda = 0.322$. If we rerun the adaptive graphical lasso with a smaller tuning parameter, we see the expected pattern:
 
 ```{R}
 adaptiveGGM2 = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
@@ -646,12 +653,15 @@ adaptiveGGM2 = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall),
               initial = ledoit_wolf, 
               Y = ocDataSmall,
               lambda = 0.1)
+```
 
+```{R echo=F, fig.width=5, fig.height=2}
+par(mfrow=c(1,1),mar=c(2,4,2,4),cex=0.6)
 adaptiveEdgeWeights2 = adaptiveGGM2$P[lower.tri(adaptiveGGM2$P)]
 allWeights = data.frame("lasso"=l1EdgeWeights,"adaptive2"=adaptiveEdgeWeights2)
 allWeights = allWeights[order(allWeights[,1]),]
 rmIndices = which(allWeights$lasso == 0 & allWeights$adaptive2 == 0)
-plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight", main = "glasso vs. more dense adaptive lasso")
+plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight", main = "glasso edge weights vs.dense adaptive glasso edge weights")
 points(allWeights[-rmIndices,2],pch=20,col="blue")
 legend("topleft",c("glasso","adaptive lasso, lambda = 0.1"),col=c("red","blue"),pch=20)
 ```
@@ -698,6 +708,8 @@ ggmConnected = delete_vertices(ggm, which(degree(ggm)==0))
 Next, we can switch to the use of one of `igraph`'s force-directed layout methods. These layouts typically have a random component, so it is necessary to set a seed for reproducibility. 
 
 ```{R}
+set.seed(2021)
+thisLayout = layout_with_graphopt(ggmConnected)
 
 plot(ggmConnected,
      vertex.size=0,
@@ -749,4 +761,25 @@ plot(ggmConnected,
      layout=thisLayout)
 ```
 
-One option for dealing with label overlap is to use a smaller label size relative to the output size of the image, but this can require high-resolution outputs and the ability to zoom in to read small letters. A practical compromise is to decrease the label size somewhat and label only some of the nodes, for example, those nodes with a certain degree. 
+One option for dealing with label overlap is to use a smaller label size relative to the output size of the image, but this can require high-resolution outputs and the ability to zoom in to read small letters. A practical compromise is to decrease the label size somewhat and label only some of the nodes, for example, those nodes with a certain degree. The following code is a way to do this, and the resulting figure is shown on the next page as well as in the main manuscript.
+
+\newpage
+
+```{R fig.width=10, fig.height=12}
+V(ggm)$name = names(ocDataSmall) # assign names to nodes 
+ggmConnected = delete_vertices(ggm, which(degree(ggm) == 0))
+
+set.seed(2021)
+thisLayout = layout_with_graphopt(ggmConnected)
+
+plot(ggmConnected, vertex.size = degree(ggmConnected),
+     vertex.label = ifelse(degree(ggmConnected)>6, V(ggmConnected)$name, NA), 
+     vertex.label.cex = 0.5, 
+     edge.width = 20 *
+    abs(E(ggmConnected)$weight), 
+    edge.color = ifelse(E(ggmConnected)$weight >
+    0, "darkred", "blue"), 
+    layout = thisLayout)
+
+title("Ovarian Cancer Gene Expression (Wamunyokoli et al.)")
+```
