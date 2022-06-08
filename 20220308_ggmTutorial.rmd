@@ -499,15 +499,22 @@ esrp1_to_epcam=bn$bootTable %>% filter(node1=="EPCAM" &node2=="ESRP1")
 sd(esrp1_to_epcam$value)
 ```
 
-We can use this information to construct approximate 95% confidence intervals:
+We can use this information to construct approximate 95% quantile or Wald-type confidence intervals; here, we show both:
+
+```{R}
+ciLowerQuantile = quantile(esrp1_to_epcam$value, 0.025)
+ciUpperQuantile = quantile(esrp1_to_epcam$value, 0.975)
+ciLowerQuantile
+ciUpperQuantile
+```
 
 ```{R}
 pointEstimate = bn$sampleTable %>% filter(node1=="EPCAM" &node2=="ESRP1")
-ciLower = pointEstimate$value - 1.96*sd(esrp1_to_epcam$value)
-ciUpper = pointEstimate$value + 1.96*sd(esrp1_to_epcam$value)
+ciLowerWald = pointEstimate$value - 1.96*sd(esrp1_to_epcam$value)
+ciUpperWald = pointEstimate$value + 1.96*sd(esrp1_to_epcam$value)
 
-ciLower
-ciUpper
+ciLowerWald
+ciUpperWald
 ```
 
 Note that if many confidence intervals are to be investigated, multiple hypothesis testing should be considered. While a simple adjustment such as a Bonferroni correction can be implemented, there are difficulties related to the dependence between the multiple tests and this is an area for future work`\cite{epskamp2018estimating}`.
@@ -575,44 +582,39 @@ Looking at the community level can be a helpful way to understand which nodes in
 
 Finally, we demonstrate the difference in estimated GGMs with the use of penalties other than the $\ell_1$ (LASSO) penalty, as discussed in Section 3.1.2. The `GGMncv` package provides the `ggmncv` function which allows us to easily fit several different penalties.
 
-First, as a benchmark, we fit a GGM with the LASSO penalty using the same tuning parameter selected above using the StARS criterion ($\lambda = 0.322$)
+First, as a benchmark, we fit a GGM with the LASSO penalty using the same tuning parameter selected above using the StARS criterion ($\lambda = 0.322$). (While `ggmncv` also provides an option for selecting the tuning parameter using a generalized information criterion, here our focus is on comparing penalties with the same value of $\lambda$ and so we do not explore this functionality; interested readers should refer to Williams (2021) for details `\cite{williams2021ggmncv}`.)
 
 ```{R}
 lassoGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
-              penalty = "lasso",
-              progress = FALSE,
-              initial = ledoit_wolf, 
-              Y = ocDataSmall,
-              lambda = 0.322)
+              penalty = "lasso", # choice of penalty function
+              progress = FALSE, # don't show a progress bar
+              Y = ocDataSmall, # input data 
+              lambda = 0.322) # penalty parameter
 ```
 
 Next, we fit GGMs with the adaptive graphical lasso, the SCAD penalty, and the MCP. Again, we use the same value of $\lambda = 0.322$ for purposes of comparison between these approaches; in practice, the optimal value of $\lambda$ is specific to each penalty type and the appropriate penalty must be used in tuning parameter selection. 
 
 ```{R}
-adaptiveGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
+adaptiveGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall),
               penalty = "adapt",
               progress = FALSE,
-              initial = ledoit_wolf, 
               Y = ocDataSmall,
               lambda = 0.322)
 
 scadGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
               penalty = "scad",
               progress = FALSE,
-              initial = ledoit_wolf, 
               Y = ocDataSmall,
               lambda = 0.322)
 
 mcpGGM = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
               penalty = "mcp",
               progress = FALSE,
-              initial = ledoit_wolf, 
               Y = ocDataSmall,
               lambda = 0.322)
-
 ```
 
-A pairwise comparison of coefficients shows that, among coefficients that are nonzero in at least one of the pair of models, coefficients with larger magnitude are typically shrunk less by the SCAD and the MCP penalties but the same phenomenon is not observed in the adaptive graphical lasso: 
+A pairwise comparison of coefficients shows that, among coefficients that are nonzero in at least one of the pair of models, coefficients with larger magnitude are typically shrunk less by the SCAD and the MCP penalties but the same phenomenon is not observed as strongly in the adaptive graphical lasso: 
 
 ```{R echo=F, fig.width=5, fig.height=6}
 l1EdgeWeights = lassoGGM$P[lower.tri(lassoGGM$P)]
@@ -644,29 +646,8 @@ legend("topleft",c("glasso","adaptive glasso"),col=c("red","blue"),pch=20)
 
 ```
 
-This can likely be attributed to the very sparse graph that is selected by the adaptive graphical lasso with $\lambda = 0.322$. If we rerun the adaptive graphical lasso with a smaller tuning parameter, we see the expected pattern:
+It is worth mentioning again that the optimal $\lambda$ is a function of the penalty type and that any cross-validation or other approaches for selecting $\lambda$ should be performed using the desired penalty of the final model. The `ggmncv` function's built-in `select` option is a convenient tool for performing such selection `\cite{williams2021ggmncv}`.
 
-```{R}
-adaptiveGGM2 = ggmncv(cor(ocDataSmall), n = nrow(ocDataSmall), 
-              penalty = "adapt",
-              progress = FALSE,
-              initial = ledoit_wolf, 
-              Y = ocDataSmall,
-              lambda = 0.1)
-```
-
-```{R echo=F, fig.width=5, fig.height=2}
-par(mfrow=c(1,1),mar=c(2,4,2,4),cex=0.6)
-adaptiveEdgeWeights2 = adaptiveGGM2$P[lower.tri(adaptiveGGM2$P)]
-allWeights = data.frame("lasso"=l1EdgeWeights,"adaptive2"=adaptiveEdgeWeights2)
-allWeights = allWeights[order(allWeights[,1]),]
-rmIndices = which(allWeights$lasso == 0 & allWeights$adaptive2 == 0)
-plot(allWeights[-rmIndices,1],pch=20,col="red",ylab = "Edge Weight", main = "glasso edge weights vs.dense adaptive glasso edge weights")
-points(allWeights[-rmIndices,2],pch=20,col="blue")
-legend("topleft",c("glasso","adaptive lasso, lambda = 0.1"),col=c("red","blue"),pch=20)
-```
-
-It is worth mentioning again that the optimal $\lambda$ is a function of the penalty type and that any cross-validation or other approaches for selecting $\lambda$ should be performed using the desired penalty of the final model.
 
 # Supplement: Making Nice Graphs
 
